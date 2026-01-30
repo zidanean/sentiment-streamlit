@@ -313,7 +313,7 @@ def make_wordcloud(text, stopwords_set, color_func):
 # =========================
 def main():
     st.sidebar.title("Navigasi")
-    menu = st.sidebar.radio("Pilih Menu:", ["Beranda", "Eksplorasi Data", "Visualisasi Sentimen", "WordCloud"])
+    menu = st.sidebar.radio("Pilih Menu:", ["Beranda", "Eksplorasi Data","Evaluasi","Visualisasi Sentimen", "WordCloud"])
 
     st.sidebar.markdown("---")
     st.sidebar.info(
@@ -377,6 +377,118 @@ def main():
 
         st.write(f"Jumlah data ditampilkan: **{len(df_show)}**")
         st.dataframe(df_show[["clean_text", "sentiment"]].head(50), use_container_width=True)
+
+    elif menu == "Evaluasi":
+        st.title("📊 Evaluasi Model SVM")
+
+        FILE_PATH = "svm_metrics.xlsx"
+
+        try:
+            # =========================
+            # LOAD DATA
+            # =========================
+            report_df = pd.read_excel(FILE_PATH, sheet_name="classification_report")
+            cm_df = pd.read_excel(FILE_PATH, sheet_name="confusion_matrix")
+
+            # =========================
+            # AKURASI
+            # =========================
+            st.subheader("✅ Akurasi Model (Data Uji)")
+
+            # 1) Coba ambil dari classification_report (baris 'accuracy')
+            acc = None
+            try:
+                acc_row = report_df[report_df["label"] == "accuracy"]
+                if not acc_row.empty:
+                    # biasanya akurasi tersimpan di kolom 'precision' (karena output_dict sklearn)
+                    for col in ["accuracy", "precision", "f1-score"]:
+                        if col in acc_row.columns:
+                            val = acc_row.iloc[0][col]
+                            if pd.notna(val):
+                                acc = float(val)
+                                break
+            except Exception:
+                acc = None
+
+            # 2) Kalau tidak ketemu, hitung dari confusion matrix
+            if acc is None:
+                cm_tmp = cm_df.copy()
+                if "actual" in cm_tmp.columns:
+                    cm_tmp = cm_tmp.set_index("actual")
+                cm_tmp = cm_tmp.apply(pd.to_numeric, errors="coerce").fillna(0)
+
+                total = cm_tmp.values.sum()
+                correct = sum(cm_tmp.iloc[i, i] for i in range(min(cm_tmp.shape)))
+                acc = (correct / total) if total > 0 else 0.0
+
+            # Tampilkan
+            st.metric("Accuracy", f"{acc * 100:.2f}%")
+
+            # =========================
+            # CLASSIFICATION REPORT
+            # =========================
+            st.subheader("📄 Classification Report")
+            st.dataframe(report_df, use_container_width=True)
+
+            # =========================
+            # BAR CHART PR / RE / F1
+            # =========================
+            st.subheader("📊 Precision, Recall, F1-score per Kelas")
+
+            # buang baris ringkasan
+            report_plot = report_df[
+                ~report_df["label"].isin(["accuracy", "macro avg", "weighted avg"])
+            ]
+
+            fig, ax = plt.subplots(figsize=(8, 5))
+            x = range(len(report_plot))
+
+            ax.bar(x, report_plot["precision"], width=0.25, label="Precision")
+            ax.bar([i + 0.25 for i in x], report_plot["recall"], width=0.25, label="Recall")
+            ax.bar([i + 0.50 for i in x], report_plot["f1-score"], width=0.25, label="F1-score")
+
+            ax.set_xticks([i + 0.25 for i in x])
+            ax.set_xticklabels(report_plot["label"])
+            ax.set_ylim(0, 1.0)
+            ax.set_ylabel("Score")
+            ax.legend()
+
+            st.pyplot(fig)
+
+            # =========================
+            # CONFUSION MATRIX
+            # =========================
+            st.subheader("🧩 Confusion Matrix")
+
+            # rapikan dataframe
+            if "actual" in cm_df.columns:
+                cm_df = cm_df.set_index("actual")
+
+            cm_df = cm_df.apply(pd.to_numeric)
+
+            fig_cm, ax_cm = plt.subplots(figsize=(6, 5))
+            im = ax_cm.imshow(cm_df.values)
+
+            ax_cm.set_xticks(range(len(cm_df.columns)))
+            ax_cm.set_yticks(range(len(cm_df.index)))
+            ax_cm.set_xticklabels(cm_df.columns)
+            ax_cm.set_yticklabels(cm_df.index)
+            ax_cm.set_xlabel("Predicted")
+            ax_cm.set_ylabel("Actual")
+
+            # angka di sel
+            for i in range(cm_df.shape[0]):
+                for j in range(cm_df.shape[1]):
+                    ax_cm.text(j, i, cm_df.iloc[i, j],
+                               ha="center", va="center")
+
+            fig_cm.colorbar(im, ax=ax_cm)
+            st.pyplot(fig_cm)
+
+        except FileNotFoundError:
+            st.error("❌ File svm_metrics.xlsx tidak ditemukan.")
+        except Exception as e:
+            st.error(f"Terjadi kesalahan: {e}")
 
     elif menu == "Visualisasi Sentimen":
         st.title("📈 Visualisasi Distribusi Sentimen")
